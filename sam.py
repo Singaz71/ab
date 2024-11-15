@@ -11,7 +11,7 @@ from subprocess import Popen
 # MongoDB and Telegram Bot Setup
 TOKEN = '7889670543:AAGVfNdSyD3ipQ6Zl7-dOdU0W6lgrYI5Iis'
 MONGO_URI = 'mongodb+srv://Soul:JYAuvlizhw7wqLOb@soul.tsga4.mongodb.net'
-ALLOWED_USER_IDS = [6207079474]  # Replace these with actual admin user IDs
+ALLOWED_USER_IDS = [6207079474,700152541]  # Replace these with actual admin user IDs
 
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client['soul']
