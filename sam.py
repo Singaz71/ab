@@ -10,6 +10,7 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 TOKEN = '7889670543:AAE2CpKPg_CsbkmmAB3Wrk4434JmHofZVNM'
 MONGO_URI = 'mongodb+srv://Soul:JYAuvlizhw7wqLOb@soul.tsga4.mongodb.net'
 CHANNEL_ID = 1002292224661
+ERROR_CHANNEL_ID = 1002292224661
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
@@ -132,18 +133,13 @@ def process_attack_command(message):
             bot.send_message(message.chat.id, f"Port {target_port} is blocked. Please use a different port.")
             return
 
-        # Execute the C program using subprocess
-        expiration_time = "2025-10-22 23:59:59"  # Fixed expiration time
-        command = f"./sam {target_ip} {target_port} {duration_minutes}"
-
-        # Start the C program
-        subprocess.Popen(command, shell=True)
-
+        # Simulate the attack here (you can replace this with the actual logic for launching the attack)
         bot.send_message(message.chat.id, f"Attack started on {target_ip}:{target_port} for {duration_minutes} minutes.")
         
-        # After the attack finishes, send a completion message
-        # This part is just for simulation, adjust as necessary for your setup
+        # Here you can run your actual attack logic (instead of the simulation)
+        # Example: subprocess.Popen(f"./sam {target_ip} {target_port} {duration_minutes}", shell=True)
         bot.send_message(message.chat.id, f"Attack on {target_ip}:{target_port} for {duration_minutes} minutes has completed.")
+
     except Exception as e:
         logging.error(f"Error in processing attack command: {e}")
 
@@ -183,3 +179,4 @@ def send_welcome(message):
 if __name__ == "__main__":
     logging.info("Starting bot...")
     bot.polling(none_stop=True)
+        
